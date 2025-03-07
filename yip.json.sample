@@ -1,0 +1,51 @@
+{
+  "db": {
+    "host": "localhost",
+    "user": "postgres",
+    "password": "postgres",
+    "database": "postgres",
+    "port": "5432"
+  },
+  "jwt": {
+    "token_expiration_in_sec": 600,
+    "refresh_token_expiration_in_sec": 1000000000,
+    "certificate_private": "test_certs/app.rsa",
+    "certificate_public": "test_certs/app.rsa.pub",
+    "issuer": "https://ip.yours.net"
+  },
+  "audiences": [
+    {
+      "url": "https://api.yours.net",
+      "clients": [
+        "https://sample.yours.net"
+      ],
+      "scopes": [
+        put_profile
+      ]
+    }
+  ],
+  "api": {
+    "port": "8080",
+    "swagger_on": true,
+    "admin": {
+            "username": "lenny",
+            "password_hashed": "0x999492349349"
+    }
+  },
+  "chains": [
+  	{
+  	    "rpc_url": "https://rpc.",
+  		"id": "2828"
+  	}
+  ],
+  "test": {
+    "on": false
+  },
+  "email": {
+    "sender": "",
+    "mailjet": {
+        "publicKey": "aaa",
+        "privateKey": ""
+    }
+  }
+}

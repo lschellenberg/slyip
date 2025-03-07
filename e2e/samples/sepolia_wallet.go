@@ -1,0 +1,4 @@
+package samples
+
+var SepoliaWalletPrivateKey = "a5ec116d46f3ec04c7337be7af353a3c20eb567ba764304023eef108fd2f5aa2"
+var SLYWalletAddress = "0x030E4BFabdF1d5463B92BBC4fA8cE8587c7BA079"
