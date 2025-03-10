@@ -19,12 +19,13 @@ func TestSignIn(t *testing.T) {
 
 func TestRegisterUser(t *testing.T) {
 	statusCode, response, err := client.RegisterUser(samples.AnotherUser)
+	fmt.Println(response)
 	assert.NoError(t, err, "didn't expect error")
 	assert.Equal(t, 201, statusCode, "status code should be ok")
 	assert.NotNil(t, response)
 	assert.Equal(t, samples.AnotherUser.Email, response.Email, "email should be correct")
 	assert.True(t, response.IsAdmin(), "should not be admin")
-	newStatusCode, account, err := client.GetAccount(response.ID)
+	newStatusCode, account, err := client.GetAccount(response.ID.String())
 	assert.Equal(t, 200, newStatusCode, "status code should be ok")
 	fmt.Println(account)
 }

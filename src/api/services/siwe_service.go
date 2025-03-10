@@ -12,16 +12,18 @@ import (
 	"yip/src/api/auth/verifier"
 	"yip/src/api/services/dto"
 	"yip/src/config"
+	"yip/src/contracts"
 	"yip/src/providers"
 	"yip/src/repositories"
 	"yip/src/slyerrors"
 )
 
 type SIWEService struct {
-	config      *config.Config
-	verifier    *verifier.Verifier
-	userDB      repositories.Database
-	ethProvider *providers.EthProvider
+	config           *config.Config
+	verifier         *verifier.Verifier
+	userDB           repositories.Database
+	ethProvider      *providers.EthProvider
+	slyWalletManager *contracts.WalletManager
 }
 
 func NewSIWEService(
@@ -29,17 +31,22 @@ func NewSIWEService(
 	verifier *verifier.Verifier,
 	useDB repositories.Database,
 	ethProvider *providers.EthProvider,
+	slyWalletManager *contracts.WalletManager,
 ) SIWEService {
 	return SIWEService{
-		config:      config,
-		verifier:    verifier,
-		userDB:      useDB,
-		ethProvider: ethProvider,
+		config:           config,
+		verifier:         verifier,
+		userDB:           useDB,
+		ethProvider:      ethProvider,
+		slyWalletManager: slyWalletManager,
 	}
 }
 
 func (s SIWEService) Challenge(data *dto.ChallengeRequestDTO) (*dto.ChallengeResponse, error) {
 	domainURL, err := url.Parse(data.Domain)
+	if err != nil {
+		return nil, err
+	}
 	m, err := siwe.InitMessage(domainURL.Host, data.Address, data.Domain, siwe.GenerateNonce(), map[string]interface{}{"chainId": data.ChainId})
 	if err != nil {
 		return nil, err
@@ -105,7 +112,7 @@ type AuthenticationResult struct {
 }
 
 func (s SIWEService) Authenticate(eoa common.Address, slyWalletAddress common.Address) AuthenticationResult {
-	slyWallet, err := s.ethProvider.GetSLYWalletContractAtAddress(slyWalletAddress)
+	slyWallet, err := s.slyWalletManager.GetSLYWalletContractAtAddress(slyWalletAddress)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "no contract code at given address") {

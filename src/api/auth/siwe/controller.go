@@ -67,6 +67,8 @@ func (a Controller) Challenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Println(m.Challenge, m.ChainId, m.Address, m.Domain)
+
 	httpx.RespondWithJSON(w, httpx.OK(m))
 }
 
@@ -96,6 +98,7 @@ type siweSubmission struct {
 //	200: ChallengeResponse
 func (a Controller) Verify(w http.ResponseWriter, r *http.Request) {
 	data := &dto.SubmitRequestDTO{}
+	fmt.Println(data)
 	if err := data.ReadAndValidate(r); err != nil {
 		httpx.RespondWithJSON(w, httpx.MapServiceError(err))
 		return
@@ -143,6 +146,7 @@ func (a Controller) Submit(w http.ResponseWriter, r *http.Request) {
 		auds[k] = v.URL
 	}
 
+	fmt.Println("GetOrCreateAccount")
 	ecdsa, err := a.service.GetOrCreateAccount(r.Context(), m.OriginalAddress)
 	if err != nil {
 		httpx.RespondWithJSON(w, httpx.MapServiceError(httpx.MapAuthError(err)))
@@ -155,12 +159,14 @@ func (a Controller) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Println("GetAccountById")
 	account, err := a.userService.GetAccountById(r.Context(), uu)
 	if err != nil {
 		httpx.RespondWithJSON(w, httpx.InternalError(err.Error()))
 		return
 	}
 
+	fmt.Println("CreateToken")
 	token, err := a.service.CreateToken(auds, ecdsa.AccountId, ecdsa.Address, account.LastUsedSLYWallet, verifier.RoleBasic)
 	if err != nil {
 		httpx.RespondWithJSON(w, httpx.MapServiceError(httpx.MapAuthError(err)))

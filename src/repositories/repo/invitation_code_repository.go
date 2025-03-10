@@ -380,6 +380,94 @@ func (r *InvitationCodeRepository) GetWithSlyWallets(ctx context.Context, code s
 	return invitationCode, nil
 }
 
+// ListValidCodes retrieves a paginated list of valid invitation codes:
+// - Codes that haven't expired yet
+// - Codes without a transaction hash
+func (r *InvitationCodeRepository) ListValidCodes(ctx context.Context, query *common.PaginationQuery) (*PaginatedResponse[InvitationCodeModel], error) {
+	if query == nil {
+		query = NewPaginationQuery(AllowedInvitationCodeFilters)
+	}
+
+	if err := query.Validate(); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+
+	// Create condition: not expired OR empty transaction hash
+	validCondition := table.InvitationCode.ExpiresAt.GT(postgres.TimestampzT(now)).
+		OR(table.InvitationCode.TransactionHash.EQ(postgres.String("")))
+
+	// Count total valid codes
+	countStmt := postgres.SELECT(
+		postgres.COUNT(postgres.STAR).AS("total"),
+	).FROM(
+		table.InvitationCode,
+	).WHERE(
+		validCondition,
+	)
+
+	var totalCount struct {
+		Total uint64 `sql:"total"`
+	}
+	err := countStmt.QueryContext(ctx, r.db.GetDB(), &totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count valid InvitationCodes: %w", err)
+	}
+
+	// Get data with pagination
+	selectStmt := postgres.SELECT(
+		table.InvitationCode.AllColumns,
+	).FROM(
+		table.InvitationCode,
+	).WHERE(
+		validCondition,
+	)
+
+	// Apply sorting
+	switch query.SortBy {
+	case "code":
+		if query.SortOrder == common.SortingOrderASC {
+			selectStmt = selectStmt.ORDER_BY(table.InvitationCode.Code.ASC())
+		} else {
+			selectStmt = selectStmt.ORDER_BY(table.InvitationCode.Code.DESC())
+		}
+	default: // expiresAt is default
+		if query.SortOrder == common.SortingOrderASC {
+			selectStmt = selectStmt.ORDER_BY(table.InvitationCode.ExpiresAt.ASC())
+		} else {
+			selectStmt = selectStmt.ORDER_BY(table.InvitationCode.ExpiresAt.DESC())
+		}
+	}
+
+	// Apply pagination
+	selectStmt = selectStmt.
+		OFFSET(int64(query.Offset)).
+		LIMIT(int64(query.PageSize))
+
+	var dbInvitationCodes []model.InvitationCode
+	err = selectStmt.QueryContext(ctx, r.db.GetDB(), &dbInvitationCodes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list valid InvitationCodes: %w", err)
+	}
+
+	invitationCodes := make([]InvitationCodeModel, len(dbInvitationCodes))
+	for i, dbInvitationCode := range dbInvitationCodes {
+		invitationCodes[i] = *mapInvitationCodeToModel(dbInvitationCode)
+	}
+
+	return &PaginatedResponse[InvitationCodeModel]{
+		Data:      invitationCodes,
+		PageSize:  query.PageSize,
+		Offset:    query.Offset,
+		SortBy:    query.SortBy,
+		SortOrder: query.SortOrder,
+		Total:     totalCount.Total,
+		Count:     uint64(len(invitationCodes)),
+		Filter:    make(map[string]string),
+	}, nil
+}
+
 // Helper function to map InvitationCode model to InvitationCodeModel
 func mapInvitationCodeToModel(invitationCode model.InvitationCode) *InvitationCodeModel {
 	return &InvitationCodeModel{

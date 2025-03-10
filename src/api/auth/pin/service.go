@@ -9,6 +9,7 @@ import (
 	"yip/src/config"
 	"yip/src/providers"
 	"yip/src/repositories"
+	"yip/src/repositories/repo"
 	"yip/src/slyerrors"
 )
 
@@ -18,6 +19,7 @@ type Service struct {
 	pool     PinPool
 	database repositories.Database
 	ep       *providers.EmailProvider
+	repos    *repo.Repositories
 }
 
 func NewService(
@@ -25,6 +27,7 @@ func NewService(
 	verifier *verifier.Verifier,
 	useDB repositories.Database,
 	ep *providers.EmailProvider,
+	repos *repo.Repositories,
 ) Service {
 	return Service{
 		config:   config,
@@ -32,6 +35,7 @@ func NewService(
 		pool:     NewPool(60 * time.Minute),
 		database: useDB,
 		ep:       ep,
+		repos:    repos,
 	}
 }
 
@@ -104,12 +108,12 @@ func (s *Service) Redeem(ctx context.Context, body *PinRedeemDTO) (*verifier.Tok
 		}
 	}
 
-	account, err := s.database.GetAccountById(ctx, uu)
+	account, err := s.repos.AccountRepo.SetEmailVerified(ctx, uu)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.verifier.CreateToken(body.Audiences, account.ID, pin.ECDSAPubKey, account.LastUsedSLYWallet, verifier.RoleBasic)
+	return s.verifier.CreateToken(body.Audiences, account.ID.String(), pin.ECDSAPubKey, account.LastUsedSlyWallet, verifier.RoleBasic)
 }
 
 func (s *Service) ListPins(ctx context.Context) ([]Pin, error) {

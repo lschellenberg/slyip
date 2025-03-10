@@ -247,3 +247,19 @@ type StatusResponse struct {
 	StatusCode int  `json:"statusCode"`
 	Success    bool `json:"success"`
 }
+
+func PrintRequestBody(r *http.Request) {
+	// Read the body
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		fmt.Println("Error reading body:", err)
+		return
+	}
+
+	// Print the body as a string
+	fmt.Println("Request body:")
+	fmt.Println(string(bodyBytes))
+
+	// Important: Restore the body for later use
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+}

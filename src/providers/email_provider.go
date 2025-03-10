@@ -32,7 +32,7 @@ func (ep EmailProvider) SendPinMail(toEmail string, pin string) error {
 			To: &mailjet.RecipientsV31{
 				mailjet.RecipientV31{
 					Email: toEmail,
-					Name:  "client",
+					Name:  "Client",
 				},
 			},
 			TemplateID:       ep.config.MailJet.TemplateId,

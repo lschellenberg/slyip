@@ -73,7 +73,7 @@ func (r *AccountRepository) Create(ctx context.Context, account *AccountModel) (
 	var dbAccount model.Account
 	err := stmt.QueryContext(ctx, r.db.GetDB(), &dbAccount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create account: %w", err)
+		return nil, err
 	}
 
 	return mapAccountToModel(dbAccount), nil
@@ -274,38 +274,45 @@ func (r *AccountRepository) Update(ctx context.Context, account *AccountModel) (
 	account.UpdatedAt = time.Now()
 
 	var stmt postgres.UpdateStatement
-	if account.Email != nil {
-		stmt = table.Account.UPDATE().
-			SET(
-				table.Account.FirstName.SET(postgres.String(account.FirstName)),
-				table.Account.LastName.SET(postgres.String(account.LastName)),
-				table.Account.Phone.SET(postgres.String(account.Phone)),
-				table.Account.Email.SET(postgres.String(*account.Email)),
-				table.Account.IsEmailVerified.SET(postgres.Bool(account.IsEmailVerified)),
-				table.Account.IsPhoneVerified.SET(postgres.Bool(account.IsPhoneVerified)),
-				table.Account.Role.SET(postgres.String(account.Role)),
-				table.Account.LastUsedSlyWallet.SET(postgres.String(account.LastUsedSlyWallet)),
-			).WHERE(
-			table.Account.ID.EQ(postgres.UUID(account.ID)),
-		).RETURNING(
-			table.Account.AllColumns,
-		)
-	} else {
-		stmt = table.Account.UPDATE().
-			SET(
-				table.Account.FirstName.SET(postgres.String(account.FirstName)),
-				table.Account.LastName.SET(postgres.String(account.LastName)),
-				table.Account.Phone.SET(postgres.String(account.Phone)),
-				table.Account.IsEmailVerified.SET(postgres.Bool(account.IsEmailVerified)),
-				table.Account.IsPhoneVerified.SET(postgres.Bool(account.IsPhoneVerified)),
-				table.Account.Role.SET(postgres.String(account.Role)),
-				table.Account.LastUsedSlyWallet.SET(postgres.String(account.LastUsedSlyWallet)),
-			).WHERE(
-			table.Account.ID.EQ(postgres.UUID(account.ID)),
-		).RETURNING(
-			table.Account.AllColumns,
-		)
+	stmt = table.Account.UPDATE().
+		SET(
+			table.Account.FirstName.SET(postgres.String(account.FirstName)),
+			table.Account.LastName.SET(postgres.String(account.LastName)),
+			table.Account.Phone.SET(postgres.String(account.Phone)),
+			table.Account.Email.SET(postgres.String(account.Email)),
+			table.Account.IsEmailVerified.SET(postgres.Bool(account.IsEmailVerified)),
+			table.Account.IsPhoneVerified.SET(postgres.Bool(account.IsPhoneVerified)),
+			table.Account.Role.SET(postgres.String(account.Role)),
+			table.Account.LastUsedSlyWallet.SET(postgres.String(account.LastUsedSlyWallet)),
+		).WHERE(
+		table.Account.ID.EQ(postgres.UUID(account.ID)),
+	).RETURNING(
+		table.Account.AllColumns,
+	)
+
+	var dbAccount model.Account
+	err := stmt.QueryContext(ctx, r.db.GetDB(), &dbAccount)
+	if err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return nil, DBItemNotFound
+		}
+		return nil, fmt.Errorf("failed to update account: %w", err)
 	}
+
+	return mapAccountToModel(dbAccount), nil
+}
+
+// SetEmailVerified sets email verified
+func (r *AccountRepository) SetEmailVerified(ctx context.Context, accountId uuid.UUID) (*AccountModel, error) {
+	stmt := table.Account.UPDATE().
+		SET(
+			table.Account.IsEmailVerified.SET(postgres.Bool(true)),
+			table.Account.UpdatedAt.SET(postgres.TimestampzT(time.Now())),
+		).WHERE(
+		table.Account.ID.EQ(postgres.UUID(accountId)),
+	).RETURNING(
+		table.Account.AllColumns,
+	)
 
 	var dbAccount model.Account
 	err := stmt.QueryContext(ctx, r.db.GetDB(), &dbAccount)
@@ -488,14 +495,42 @@ func (r *AccountRepository) GetCompleteAccount(ctx context.Context, accountID uu
 	return account, nil
 }
 
+func (r *AccountRepository) SetInvitationCode(ctx context.Context, accountId uuid.UUID, invitationCode string) (*AccountModel, error) {
+	var stmt postgres.UpdateStatement
+	stmt = table.Account.UPDATE().
+		SET(
+			table.Account.InvitationCode.SET(postgres.String(invitationCode)),
+			table.Account.UpdatedAt.SET(postgres.TimestampzT(time.Now())),
+		).WHERE(
+		table.Account.ID.EQ(postgres.UUID(accountId)),
+	).RETURNING(
+		table.Account.AllColumns,
+	)
+
+	var dbAccount model.Account
+	err := stmt.QueryContext(ctx, r.db.GetDB(), &dbAccount)
+	if err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return nil, DBItemNotFound
+		}
+		return nil, fmt.Errorf("failed to update account: %w", err)
+	}
+
+	return mapAccountToModel(dbAccount), nil
+}
+
 // Helper function to map Account model to AccountModel
 func mapAccountToModel(account model.Account) *AccountModel {
+	email := ""
+	if account.Email != nil {
+		email = *account.Email
+	}
 	return &AccountModel{
 		ID:                account.ID,
 		FirstName:         account.FirstName,
 		LastName:          account.LastName,
 		Phone:             account.Phone,
-		Email:             account.Email,
+		Email:             email,
 		IsEmailVerified:   account.IsEmailVerified,
 		IsPhoneVerified:   account.IsPhoneVerified,
 		PasswordHashed:    account.PasswordHashed,

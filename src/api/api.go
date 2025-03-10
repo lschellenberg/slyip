@@ -40,7 +40,7 @@ func NewApi(app *app.App) Api {
 	tokenMiddleware := initMiddleware(app.Verifier)
 
 	api.Modules.AuthModule = auth.NewAuthModule(app.Config, &apiServices, &tokenMiddleware)
-	api.Modules.AdminModule = admin.NewAdminModule(&apiServices, &tokenMiddleware)
+	api.Modules.AdminModule = admin.NewAdminModule(app.Config, &apiServices, &tokenMiddleware, app.EthProvider)
 	api.Modules.SLYWalletModule = slywallet.NewModule(&apiServices, &tokenMiddleware)
 
 	api.Router = newRouter(&api)
@@ -95,6 +95,7 @@ func (api Api) defineRoutes(r *chi.Mux) {
 
 	r.Route("/auth", api.Modules.AuthModule.Routes())
 	r.Route("/admin", api.Modules.AdminModule.Routes())
+	r.Route("/sly", api.Modules.SLYWalletModule.Routes())
 }
 
 func initMiddleware(verf *verifier.Verifier) verifier.TokenVerifierMiddleware {

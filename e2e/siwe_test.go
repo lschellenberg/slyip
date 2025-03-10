@@ -56,12 +56,7 @@ func TestSignature(t *testing.T) {
 		return
 	}
 
-	wallet, err := cryptox.WalletFromPrivateKey(samples.SepoliaWalletPrivateKey)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	sm, err := cryptox.Sign(response.Challenge, wallet, cryptox.SignMethodEthereumPrefix, cryptox.SignTypeWeb3JS)
+	sm, err := cryptox.Sign(response.Challenge, userWallet, cryptox.SignMethodEthereumPrefix, cryptox.SignTypeWeb3JS)
 	if err != nil {
 		t.Error(err)
 		return
@@ -85,7 +80,6 @@ func TestSignature(t *testing.T) {
 
 func TestSubmission(t *testing.T) {
 	// user wallet is 0x4E345039EE45217fC99a717a441384A46dD2b85C Public Key
-	adminAtSLYWallet := "0x030E4BFabdF1d5463B92BBC4fA8cE8587c7BA079"
 	wallet, err := cryptox.WalletFromPrivateKey(samples.SepoliaWalletPrivateKey)
 	if err != nil {
 		t.Error(err)
@@ -140,16 +134,8 @@ func TestSubmission(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	// TODO need to recreate db
-	//assert.Empty(t, userInfo.Account.LastUsedSLYWallet)
-
-	statusCode, userInfo, err = client.UserInfo()
-	if err != nil {
-		t.Error(err)
-		return
-	}
 	assert.Equal(t, 200, statusCode)
-	assert.Equal(t, adminAtSLYWallet, userInfo.Account.LastUsedSLYWallet)
+	assert.Equal(t, "", userInfo.Account.LastUsedSLYWallet)
 	statusCode, adminToken, err := client.SignIn(samples.AdminUser)
 	if err != nil {
 		t.Error(err)
@@ -164,47 +150,7 @@ func TestSubmission(t *testing.T) {
 		return
 	}
 	assert.Equal(t, 200, statusCode)
-	assert.Equal(t, adminAtSLYWallet, actualUser.LastUsedSLYWallet)
-
-	// relogin
-
-	_, response, err = client.SIWEChallenge(dto.ChallengeRequestDTO{
-		ChainId: chainId,
-		Address: cryptox.PublicKeyFromKey(wallet),
-		Domain:  domain,
-	})
-
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	sm, err = cryptox.Sign(response.Challenge, wallet, cryptox.SignMethodEthereumPrefix, cryptox.SignTypeWeb3JS)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	statusCode, token, err = client.SIWESubmit(dto.SubmitRequestDTO{
-		Message:   response.Challenge,
-		Signature: sm.Signature,
-		Audience:  "http://localhost:8081",
-	})
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	assert.Equal(t, 200, statusCode, "status code should be ok")
-
-	p, err = v.VerifyToken(context.Background(), token.IdToken)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	assert.Equal(t, cryptox.PublicKeyFromKey(wallet), p.ECDSAAddress)
-	assert.Equal(t, verifier.RoleBasic, p.Role)
-	assert.Equal(t, adminAtSLYWallet, p.SLYWalletAddress)
+	assert.Equal(t, actualUser.ID, userInfo.Account.ID)
 
 }
 

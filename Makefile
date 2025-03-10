@@ -31,9 +31,11 @@ run:
 	CGO_ENABLED=0 go build -o $(SERVICE_BUILD_PATH) cmd/service/main.go
 	chmod +x $(SERVICE_BUILD_PATH)
 	$(SERVICE_BUILD_PATH)
+
 # Docker
 build_docker:
 	docker buildx build --platform="linux/amd64"  -f Dockerfile -t  $(containername):$(version) .
+
 push_docker: build_docker
 	docker tag $(containername):$(version) leondroid/$(containername):$(version)
 	docker push leondroid/$(containername):$(version)

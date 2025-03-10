@@ -2,12 +2,17 @@ package pkg
 
 import (
 	"fmt"
+	info2 "yip/src/api/admin/info"
 	"yip/src/api/auth/pin"
 	"yip/src/api/auth/session"
 	"yip/src/api/auth/verifier"
 	"yip/src/api/services/dto"
+	"yip/src/providers"
 	"yip/src/repositories"
+	"yip/src/repositories/repo"
 )
+
+type EmptyBody struct{}
 
 type ApiClient struct {
 	httpClient HttpClient
@@ -68,14 +73,25 @@ func (c *ApiClient) UserInfo() (statusCode int, response *dto.UserInfoResponse, 
 //
 // //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+func (c *ApiClient) ChainInfo() (statusCode int, response *info2.ChainInfoDTO, err error) {
+	response = &info2.ChainInfoDTO{}
+	statusCode, err = c.httpClient.Get(response, c.token, "admin/info/chain")
+	return
+}
+
+func (c *ApiClient) GetCodes() (statusCode int, response *repo.PaginatedResponse[repo.InvitationCodeModel], err error) {
+	response = &repo.PaginatedResponse[repo.InvitationCodeModel]{}
+	statusCode, err = c.httpClient.Get(response, c.token, "admin/info/codes")
+	return
+}
 func (c *ApiClient) SignIn(body dto.SignInRequest) (statusCode int, response *verifier.Token, err error) {
 	response = &verifier.Token{}
 	statusCode, err = c.httpClient.Post(body, response, c.token, "admin/accounts/token")
 	return
 }
 
-func (c *ApiClient) RegisterUser(body dto.RegisterRequest) (statusCode int, response *repositories.UserAccount, err error) {
-	response = &repositories.UserAccount{}
+func (c *ApiClient) RegisterUser(body dto.RegisterRequest) (statusCode int, response *repo.AccountModel, err error) {
+	response = &repo.AccountModel{}
 	statusCode, err = c.httpClient.Post(body, response, c.token, "admin/accounts/register")
 	return
 }
@@ -147,5 +163,29 @@ func (c *ApiClient) VerifyToken(idToken string) (statusCode int, response *verif
 func (c *ApiClient) Session(body *session.WebsocketMessage) (statusCode int, response *session.WebsocketMessage, err error) {
 	response = &session.WebsocketMessage{}
 	statusCode, err = c.httpClient.Post(body, response, c.token, "auth/session")
+	return
+}
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//	SLY Wallets
+//
+// //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+func (c *ApiClient) CreateSLYWallet(body *session.WebsocketMessage) (statusCode int, response *session.WebsocketMessage, err error) {
+	response = &session.WebsocketMessage{}
+	statusCode, err = c.httpClient.Post(body, response, c.token, "auth/session")
+	return
+}
+
+func (c *ApiClient) SpawnSLYWallet(body *dto.CreateSLYWalletRequest) (statusCode int, response *providers.TransactionTicket, err error) {
+	response = &providers.TransactionTicket{}
+	statusCode, err = c.httpClient.Post(body, response, c.token, "sly/wallet/spawn")
+	return
+}
+
+func (c *ApiClient) GetTransactionStatus(hash string) (statusCode int, response *providers.TransactionTicket, err error) {
+	response = &providers.TransactionTicket{}
+	statusCode, err = c.httpClient.Get(response, c.token, fmt.Sprintf("sly/wallet/receipt/%v", hash))
 	return
 }

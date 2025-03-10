@@ -86,9 +86,14 @@ func (c Controller) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	result, err := c.service.RegisterUser(r.Context(), data)
 
 	if err != nil {
+		fmt.Println(err)
+		fmt.Println(slyerrors.MapJetError(err, ""))
+		fmt.Println(httpx.MapServiceError(slyerrors.MapJetError(err, "")))
 		httpx.RespondWithJSON(w, httpx.MapServiceError(slyerrors.MapJetError(err, "")))
 		return
 	}
+
+	fmt.Println(result)
 
 	httpx.RespondWithJSON(w, httpx.Created(result))
 }

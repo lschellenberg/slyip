@@ -157,10 +157,10 @@ func (u DatabaseImpl) GetSLYWallets(context context.Context, accountId uuid.UUID
 			SlyWallet model.SlyWallet
 		}
 	}
-	stmt := SELECT(Ecdsa.AllColumns, EcdsaSlyWallet.AllColumns, Ecdsa.AllColumns).
+	stmt := SELECT(Ecdsa.AllColumns, EcdsaSlyWallet.AllColumns, SlyWallet.AllColumns).
 		FROM(
 			Ecdsa.
-				INNER_JOIN(EcdsaSlyWallet, EcdsaSlyWallet.EcdsaAddress.EQ(SlyWallet.Address)).
+				INNER_JOIN(EcdsaSlyWallet, Ecdsa.Address.EQ(EcdsaSlyWallet.EcdsaAddress)).
 				INNER_JOIN(SlyWallet, EcdsaSlyWallet.OnChainAccountAddress.EQ(SlyWallet.Address)),
 		).
 		WHERE(Ecdsa.AccountID.EQ(UUID(accountId)))

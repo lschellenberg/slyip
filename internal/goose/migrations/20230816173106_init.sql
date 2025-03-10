@@ -12,7 +12,7 @@ create table slyip.account
     is_email_verified    boolean                  not null default false,
     is_phone_verified    boolean                  not null default false,
     password_hashed      varchar(255)             not null default '',
-    invitation_code      varchar(255)             not null,
+    invitation_code      varchar(255)             not null default '',
     role                 varchar(255)             not null default 'basic',
     last_used_sly_wallet varchar(255)             not null default '',
     created_at           timestamp with time zone not null default now(),

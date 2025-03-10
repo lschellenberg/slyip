@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"yip/e2e/samples"
@@ -17,7 +16,7 @@ func TestPinRequest(t *testing.T) {
 	}
 	client.SetToken(response.IdToken)
 
-	email := "adamshulman@gmail.com" //gofakeit.Email()
+	email := "lennysvilar@gmail.com" //gofakeit.Email()
 	wallet, err := cryptox.GenerateNewKey()
 	if err != nil {
 		t.Error(err)
@@ -32,7 +31,7 @@ func TestPinRequest(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	fmt.Println(pinResponse)
+	//fmt.Println(pinResponse)
 	assert.Equal(t, 200, status, "status code should be ok")
 	assert.Equal(t, email, pinResponse.Email)
 	assert.Equal(t, wallet.Address.String(), pinResponse.ECDSAPubKey)
@@ -44,7 +43,7 @@ func TestPinRequest(t *testing.T) {
 		return
 	}
 	assert.Equal(t, 200, status1, "status code should be ok")
-	assert.Equal(t, 0, len(response1.Keys), "status code should be ok")
+	assert.Equal(t, 0, len(response1.Keys), "keys should be empty")
 	assert.Equal(t, false, response1.IsEmailVerified)
 
 	signature, err := cryptox.Sign(pinResponse.Pin, wallet, cryptox.SignMethodEthereumPrefix, cryptox.SignTypeWeb3JS)
@@ -54,6 +53,10 @@ func TestPinRequest(t *testing.T) {
 		PinSignature: signature.Signature,
 		Audiences:    samples.TestAudiences,
 	})
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	assert.Equal(t, 200, status2, "status code should be ok")
 	assert.NotEmpty(t, response2.IdToken)
 

@@ -12,7 +12,7 @@ var localServerURL = "http://localhost:8080/api/v1"
 var url = localServerURL
 var client = pkg.NewApiClient(url)
 var userWallet = GetWallet()
-var chainId = "11155111"
+var chainId = "31337"
 
 var clientId = "d798c41c-1afe-465e-9143-75c5f111a1cb"
 

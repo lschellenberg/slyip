@@ -1,0 +1,3 @@
+package samples
+
+const expiredToken = ""

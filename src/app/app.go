@@ -2,21 +2,24 @@ package app
 
 import (
 	"database/sql"
+	"github.com/ethereum/go-ethereum/common"
 	"log"
 	migration "yip/internal/goose"
 	"yip/src/api/auth/verifier"
 	"yip/src/config"
+	"yip/src/contracts"
 	"yip/src/providers"
 	"yip/src/repositories"
 )
 
 type App struct {
-	Config        *config.Config
-	Verifier      *verifier.Verifier
-	DB            *sql.DB
-	UserDB        repositories.Database
-	EmailProvider providers.EmailProvider
-	EthProvider   *providers.EthProvider
+	Config           *config.Config
+	Verifier         *verifier.Verifier
+	DB               *sql.DB
+	UserDB           repositories.Database
+	EmailProvider    providers.EmailProvider
+	EthProvider      *providers.EthProvider
+	SLYWalletManager *contracts.WalletManager
 }
 
 func InitApp(c *config.Config) (*App, error) {
@@ -39,6 +42,10 @@ func InitApp(c *config.Config) (*App, error) {
 		return nil, err
 	}
 
+	wm, err := contracts.NewWalletManager(common.HexToAddress(c.EthConfig.Sly.FactoryAddress), &ethProvider)
+	if err != nil {
+		return nil, err
+	}
 	return &App{
 		c,
 		&v,
@@ -46,6 +53,7 @@ func InitApp(c *config.Config) (*App, error) {
 		repositories.NewDatabase(db),
 		ep,
 		&ethProvider,
+		wm,
 	}, nil
 }
 

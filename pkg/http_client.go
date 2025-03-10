@@ -131,6 +131,7 @@ func (c *HttpClient) Get(response interface{}, token string, path string) (int, 
 	}
 
 	res, err := c.Client.Do(req)
+
 	if err != nil {
 		return -1, err
 	}
@@ -144,6 +145,7 @@ func (c *HttpClient) Get(response interface{}, token string, path string) (int, 
 	}
 
 	if res.StatusCode >= 300 {
+
 		return res.StatusCode, fmt.Errorf("%s", string(b))
 	}
 

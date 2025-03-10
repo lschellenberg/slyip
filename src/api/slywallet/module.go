@@ -23,6 +23,6 @@ func NewModule(
 func (a Module) Routes() func(r chi.Router) {
 
 	return func(r chi.Router) {
-		r.Route("/", a.BaseController.Routes())
+		r.Route("/wallet", a.BaseController.Routes())
 	}
 }

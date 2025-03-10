@@ -6,89 +6,123 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum"
+	"log"
 	"math/big"
+	"strings"
+	"yip/src/providers"
+	"yip/src/slyerrors"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
+
+const TransactionTypeSpawnSLYWallet = "SpawnSLYWallet"
 
 // WalletManager handles creating and managing SLY smart wallets
 type WalletManager struct {
-	client        *ethclient.Client
-	factoryAddr   common.Address
-	factory       *SLYWalletFactory
-	defaultSigner *bind.TransactOpts
+	factoryAddr common.Address
+	factory     *SLYWalletFactory
+	ethProvider *providers.EthProvider
 }
 
 // NewWalletManager creates a new SLYWallet manager
-func NewWalletManager(client *ethclient.Client, factoryAddress common.Address, defaultSigner *bind.TransactOpts) (*WalletManager, error) {
-	factory, err := NewSLYWalletFactory(factoryAddress, client)
+func NewWalletManager(factoryAddress common.Address, ethProvider *providers.EthProvider) (*WalletManager, error) {
+	factory, err := NewSLYWalletFactory(factoryAddress, ethProvider.Client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind to SLYWalletFactory at %s: %w", factoryAddress.Hex(), err)
 	}
 
 	return &WalletManager{
-		client:        client,
-		factoryAddr:   factoryAddress,
-		factory:       factory,
-		defaultSigner: defaultSigner,
+		factoryAddr: factoryAddress,
+		factory:     factory,
+		ethProvider: ethProvider,
 	}, nil
 }
 
-// CreateWallet creates a new SLYWallet with the provided owner
-func (m *WalletManager) CreateWallet(ctx context.Context, owner common.Address) (common.Address, *types.Transaction, error) {
-	if owner == (common.Address{}) {
-		return common.Address{}, nil, errors.New("owner address cannot be zero")
-	}
-
-	tx, err := m.factory.CreateSLYWallet(m.defaultSigner, owner)
-	if err != nil {
-		return common.Address{}, nil, fmt.Errorf("failed to create wallet: %w", err)
-	}
-
-	// Wait for transaction to be mined and get receipt
-	receipt, err := bind.WaitMined(ctx, m.client, tx)
-	if err != nil {
-		return common.Address{}, tx, fmt.Errorf("failed to wait for wallet creation: %w", err)
-	}
-
-	// Parse events to get the created wallet address
-	var walletAddress common.Address
-	eventSig := []byte("SLYWalletCreated(address,address,address)")
-	eventSigHash := crypto.Keccak256Hash(eventSig)
-
-	for _, log := range receipt.Logs {
-		// Check if this log belongs to the factory contract
-		if log.Address == m.factoryAddr {
-			// The SLYWalletCreated event has the signature:
-			// event SLYWalletCreated(address indexed diamond, address indexed owner, address indexed creator)
-			// We need to check the topics
-			if len(log.Topics) == 4 && log.Topics[0] == eventSigHash {
-				// The first topic is the event signature, the second is the wallet address
-				walletAddress = common.HexToAddress(log.Topics[1].Hex())
-				return walletAddress, tx, nil
-			}
-		}
-	}
-
-	return common.Address{}, tx, errors.New("wallet created but address not found in logs")
-}
-
-// SpawnWallet creates a new SLYWallet with the provided owner
-func (m *WalletManager) SpawnWallet(owner common.Address) (*types.Transaction, error) {
+// CreateWalletWithGas creates a new SLYWallet with the provided owner and gas settings
+func (m *WalletManager) SpawnWalletWithGas(ctx context.Context, owner common.Address, gasLimit uint64, gasPrice *big.Int) (*providers.TransactionTicket, error) {
+	fmt.Println("SpawnWalletWithGas")
 	if owner == (common.Address{}) {
 		return nil, errors.New("owner address cannot be zero")
 	}
 
-	tx, err := m.factory.CreateSLYWallet(m.defaultSigner, owner)
+	// Create a copy of the default signer to modify gas settings
+	txOpts, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign transaction: %w", err)
+	}
+
+	// Set custom gas settings if provided
+	fmt.Println("gasLimit", gasLimit)
+	if gasLimit > 0 {
+		txOpts.GasLimit = gasLimit
+	}
+
+	if gasPrice != nil && gasPrice.Sign() > 0 {
+		txOpts.GasPrice = gasPrice
+	}
+
+	// Fetch current gas price if not specified
+	if txOpts.GasPrice == nil || txOpts.GasPrice.Sign() == 0 {
+
+		fmt.Println("relying on suggest gas price")
+		suggestedGasPrice, err := m.ethProvider.Client.SuggestGasPrice(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get suggested gas price: %w", err)
+		}
+		// Optionally increase by a small percentage to ensure transaction goes through
+		// For example, add 10% to the suggested gas price
+		txOpts.GasPrice = new(big.Int).Mul(suggestedGasPrice, big.NewInt(110))
+		txOpts.GasPrice = new(big.Int).Div(txOpts.GasPrice, big.NewInt(100))
+
+		fmt.Println("suggest gas price", txOpts.GasPrice)
+	}
+
+	// Estimate gas if limit not specified
+	if txOpts.GasLimit == 0 {
+		fmt.Println("relying on suggest gas limit")
+		// We need to construct the call data for CreateSLYWallet manually
+		// This is the function signature for CreateSLYWallet(address)
+		methodID := crypto.Keccak256([]byte("createSLYWallet(address)"))[0:4]
+
+		// Encode the owner parameter
+		paddedAddress := common.LeftPadBytes(owner.Bytes(), 32)
+
+		// Combine method ID and padded parameter
+		data := append(methodID, paddedAddress...)
+
+		// Create a call message to estimate gas
+		msg := ethereum.CallMsg{
+			From: txOpts.From,
+			To:   &m.factoryAddr,
+			Data: data,
+		}
+
+		estimatedGas, err := m.ethProvider.Client.EstimateGas(ctx, msg)
+
+		if err != nil {
+			// If estimation fails, use a conservative default
+			txOpts.GasLimit = 3000000 // 3 million gas should be more than enough for wallet creation
+			log.Printf("Gas estimation failed, using default: %v", err)
+		} else {
+			// Add a buffer to estimated gas (e.g., 20%)
+			fmt.Println("estimated gas:", estimatedGas)
+			txOpts.GasLimit = estimatedGas * 120 / 100
+		}
+	}
+
+	tx, err := m.factory.CreateSLYWallet(txOpts, owner)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet: %w", err)
 	}
 
-	return tx, nil
+	return &providers.TransactionTicket{
+		TransactionType: TransactionTypeSpawnSLYWallet,
+		TransactionHash: tx.Hash().Hex(),
+	}, nil
 }
 
 func (m *WalletManager) GetSLYWalletAddressFromReceipt(ctx context.Context, receipt *types.Receipt) (common.Address, error) {
@@ -115,60 +149,6 @@ func (m *WalletManager) GetSLYWalletAddressFromReceipt(ctx context.Context, rece
 	return common.Address{}, errors.New("wallet created but address not found in logs")
 }
 
-// CreateWalletWithSalt creates a new SLYWallet with a specific salt for deterministic address
-func (m *WalletManager) CreateWalletWithSalt(ctx context.Context, owner common.Address, salt [32]byte) (common.Address, *types.Transaction, error) {
-	if owner == (common.Address{}) {
-		return common.Address{}, nil, errors.New("owner address cannot be zero")
-	}
-
-	// First check if we can predict the address
-	predictedAddr, err := m.factory.PredictWalletAddress(&bind.CallOpts{}, salt)
-	if err != nil {
-		return common.Address{}, nil, fmt.Errorf("failed to predict wallet address: %w", err)
-	}
-
-	// Create the wallet with salt
-	tx, err := m.factory.CreateSLYWalletWithSalt(m.defaultSigner, owner, salt)
-	if err != nil {
-		return common.Address{}, nil, fmt.Errorf("failed to create wallet with salt: %w", err)
-	}
-
-	// Wait for transaction to be mined
-	receipt, err := bind.WaitMined(ctx, m.client, tx)
-	if err != nil {
-		return predictedAddr, tx, fmt.Errorf("failed to wait for wallet creation with salt: %w", err)
-	}
-
-	// Parse events to verify created wallet address
-	var walletAddress common.Address
-	eventSig := []byte("SLYWalletCreated(address,address,address)")
-	eventSigHash := crypto.Keccak256Hash(eventSig)
-
-	for _, log := range receipt.Logs {
-		// Check if this log belongs to the factory contract
-		if log.Address == m.factoryAddr {
-			// The SLYWalletCreated event has the signature:
-			// event SLYWalletCreated(address indexed diamond, address indexed owner, address indexed creator)
-			// We need to check the topics
-			if len(log.Topics) == 4 && log.Topics[0] == eventSigHash {
-				// The first topic is the event signature, the second is the wallet address
-				walletAddress = common.HexToAddress(log.Topics[1].Hex())
-
-				// Verify it matches our prediction
-				if walletAddress != predictedAddr {
-					return walletAddress, tx, fmt.Errorf("created wallet address %s does not match predicted address %s",
-						walletAddress.Hex(), predictedAddr.Hex())
-				}
-
-				return walletAddress, tx, nil
-			}
-		}
-	}
-
-	// If we don't find the event, return the predicted address
-	return predictedAddr, tx, nil
-}
-
 // GenerateRandomSalt generates a random 32-byte salt for CREATE2 deployment
 func (m *WalletManager) GenerateRandomSalt() ([32]byte, error) {
 	var salt [32]byte
@@ -185,7 +165,7 @@ func (m *WalletManager) GetWallet(walletAddress common.Address) (*SLYWallet, err
 		return nil, errors.New("wallet address cannot be zero")
 	}
 
-	wallet, err := NewSLYWallet(walletAddress, m.client)
+	wallet, err := NewSLYWallet(walletAddress, m.ethProvider.Client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind to SLY at %s: %w", walletAddress.Hex(), err)
 	}
@@ -214,7 +194,11 @@ func (m *WalletManager) AddKey(ctx context.Context, walletAddress common.Address
 		return nil, err
 	}
 
-	tx, err := wallet.AddKey(m.defaultSigner, key, uint8(role))
+	signer, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := wallet.AddKey(signer, key, uint8(role))
 	if err != nil {
 		return nil, fmt.Errorf("failed to add key %s with role %d: %w", key.Hex(), role, err)
 	}
@@ -229,7 +213,12 @@ func (m *WalletManager) RemoveKey(ctx context.Context, walletAddress common.Addr
 		return nil, err
 	}
 
-	tx, err := wallet.RemoveKey(m.defaultSigner, key)
+	signer, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := wallet.RemoveKey(signer, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to remove key %s: %w", key.Hex(), err)
 	}
@@ -245,10 +234,15 @@ func (m *WalletManager) ExecuteTransaction(ctx context.Context, walletAddress co
 	}
 
 	// Set value in transaction options
-	txOpts := *m.defaultSigner
+
+	signer, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	txOpts := signer
 	txOpts.Value = value
 
-	tx, err := wallet.Execute(&txOpts, to, value, data)
+	tx, err := wallet.Execute(txOpts, to, value, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute transaction: %w", err)
 	}
@@ -269,11 +263,15 @@ func (m *WalletManager) ExecuteBatch(ctx context.Context, walletAddress common.A
 		totalValue.Add(totalValue, val)
 	}
 
+	signer, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// Set value in transaction options
-	txOpts := *m.defaultSigner
+	txOpts := signer
 	txOpts.Value = totalValue
 
-	tx, err := wallet.ExecuteBatch(&txOpts, to, values, data)
+	tx, err := wallet.ExecuteBatch(txOpts, to, values, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute batch transaction: %w", err)
 	}
@@ -324,7 +322,12 @@ func (m *WalletManager) ExecuteWithSignature(
 	}
 
 	// Execute with signature
-	tx, err := wallet.ExecuteWithSignature(m.defaultSigner, to, value, data, signer, nonce, signature)
+	ssigner, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := wallet.ExecuteWithSignature(ssigner, to, value, data, signer, nonce, signature)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute with signature: %w", err)
 	}
@@ -345,7 +348,7 @@ func (m *WalletManager) createMetaTxSignature(
 	// Calculate the domain separator
 	// Note: In a real implementation, you should fetch the domain separator from the contract
 	// or calculate it using the correct domain parameters
-	chainID, err := m.client.ChainID(ctx)
+	chainID, err := m.ethProvider.Client.ChainID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chain ID: %w", err)
 	}
@@ -426,7 +429,11 @@ func (m *WalletManager) WithdrawETH(ctx context.Context, walletAddress common.Ad
 		return nil, err
 	}
 
-	tx, err := wallet.WithdrawETH(m.defaultSigner, to, amount)
+	signer, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := wallet.WithdrawETH(signer, to, amount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to withdraw ETH: %w", err)
 	}
@@ -441,7 +448,11 @@ func (m *WalletManager) WithdrawERC20(ctx context.Context, walletAddress common.
 		return nil, err
 	}
 
-	tx, err := wallet.WithdrawERC20(m.defaultSigner, token, to, amount)
+	signer, err := m.ethProvider.DefaultSigner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := wallet.WithdrawERC20(signer, token, to, amount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to withdraw ERC20 tokens: %w", err)
 	}
@@ -504,7 +515,7 @@ type WalletKeys struct {
 // GetWalletKeys retrieves all keys categorized by role from a SLYWallet contract
 func (m *WalletManager) GetWalletKeys(walletAddress common.Address) (*WalletKeys, error) {
 	// Create a new instance of the SLYWallet contract binding
-	wallet, err := NewSLYWallet(walletAddress, m.client)
+	wallet, err := NewSLYWallet(walletAddress, m.ethProvider.Client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to instantiate wallet contract: %v", err)
 	}
@@ -533,4 +544,134 @@ func (m *WalletManager) GetWalletKeys(walletAddress common.Address) (*WalletKeys
 		Admins:         admins,
 		Authenticators: authenticators,
 	}, nil
+}
+
+func (p WalletManager) GetSLYWalletContractAtAddress(address common.Address) (*SLYWallet, error) {
+	return p.GetWallet(address)
+}
+
+func (p WalletManager) GetTransactionStatusByReceipt(transactionHash common.Hash, receipt *types.Receipt, err error) (*providers.TransactionState, error) {
+	if err != nil {
+		if err.Error() == "not found" {
+			return &providers.TransactionState{
+				TransactionHash: transactionHash.Hex(),
+				Status:          providers.TransactionStatusPending,
+				ContractAddress: "",
+			}, nil
+		}
+		return nil, err
+	}
+
+	status := providers.TransactionStatusSuccess
+	contractAddress := ""
+	if receipt.Status == 0 {
+		status = providers.TransactionStatusFailed
+	} else {
+		address, err := p.GetSLYWalletAddressFromReceipt(context.Background(), receipt)
+		if err != nil {
+			return nil, err
+		}
+		contractAddress = address.Hex()
+	}
+
+	return &providers.TransactionState{
+		TransactionHash: receipt.TxHash.Hex(),
+		Status:          status,
+		ContractAddress: contractAddress,
+	}, nil
+}
+
+func (p WalletManager) AuthenticateControllerKeyOfSLYWallet(controllerKey common.Address, slyWalletAddress common.Address) AuthenticationResult {
+	slyWallet, err := p.GetWallet(slyWalletAddress)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "no contract code at given address") {
+			return AuthenticationResult{
+				IsAuthenticated: false,
+				StatusCode:      400,
+				ErrorCode:       slyerrors.ErrCodeNoContractAtGivenAddress,
+				ErrorMessage:    err.Error(),
+				ErrorDetails:    fmt.Sprintf("no contract at %s", slyWalletAddress.Hex()),
+			}
+		}
+		return AuthenticationResult{
+			IsAuthenticated: false,
+			StatusCode:      500,
+			ErrorCode:       slyerrors.ErrCodeUnknown,
+			ErrorMessage:    err.Error(),
+			ErrorDetails:    "",
+		}
+	}
+
+	isAuthenticated, err := slyWallet.KeyExists(&bind.CallOpts{}, controllerKey)
+	if err != nil {
+		return AuthenticationResult{
+			IsAuthenticated: false,
+			StatusCode:      500,
+			ErrorCode:       slyerrors.ErrCodeGetSLYAuthentication,
+			ErrorMessage:    err.Error(),
+			ErrorDetails:    "",
+		}
+	}
+
+	if !isAuthenticated {
+		return AuthenticationResult{
+			IsAuthenticated: false,
+			StatusCode:      403,
+			ErrorCode:       slyerrors.ErrCodeNotAControllerKey,
+			ErrorMessage:    "not a controller key",
+			ErrorDetails:    fmt.Sprintf("%s is not a controller key of SLYWallet %s", controllerKey.Hex(), slyWalletAddress.Hex()),
+		}
+	}
+
+	return AuthenticationResult{
+		IsAuthenticated: true,
+		StatusCode:      200,
+	}
+}
+
+type AuthenticationResult struct {
+	IsAuthenticated bool
+	StatusCode      int
+	ErrorCode       string
+	ErrorMessage    string
+	ErrorDetails    string
+}
+
+func (p WalletManager) TransactionStatus(transHash common.Hash) (*providers.TransactionStatus, error) {
+	receipt, err := p.ethProvider.Client.TransactionReceipt(context.Background(), transHash)
+
+	if err != nil {
+		if err.Error() == "not found" {
+			return &providers.TransactionStatus{
+				TransactionHash: transHash.Hex(),
+				Status:          providers.TransactionStatusPending,
+				ContractAddress: "",
+			}, nil
+		}
+		fmt.Println(err.Error())
+		return nil, err
+	}
+
+	status := providers.TransactionStatusSuccess
+	contractAddress := ""
+	if receipt.Status == 0 {
+		status = providers.TransactionStatusFailed
+	} else {
+		address, err := p.GetSLYWalletAddressFromReceipt(context.Background(), receipt)
+		if err != nil {
+			return nil, err
+		}
+		contractAddress = address.Hex()
+	}
+
+	return &providers.TransactionStatus{
+		TransactionHash: transHash.Hex(),
+		Status:          status,
+		ContractAddress: contractAddress,
+	}, nil
+}
+
+func (w WalletManager) GetTransactionReceipt(hash common.Hash) (*types.Receipt, error) {
+	return w.ethProvider.GetTransactionReceipt(hash)
 }

@@ -10,6 +10,7 @@ import (
 	"yip/src/config"
 	"yip/src/cryptox"
 	"yip/src/repositories"
+	"yip/src/repositories/repo"
 	"yip/src/slyerrors"
 )
 
@@ -17,17 +18,20 @@ type UserService struct {
 	Config   *config.Config
 	verifier *verifier.Verifier
 	userDB   repositories.Database
+	repos    *repo.Repositories
 }
 
 func NewUserService(
 	config *config.Config,
 	verifier *verifier.Verifier,
 	useDB repositories.Database,
+	repos *repo.Repositories,
 ) UserService {
 	return UserService{
 		Config:   config,
 		verifier: verifier,
 		userDB:   useDB,
+		repos:    repos,
 	}
 }
 
@@ -59,15 +63,21 @@ func (s UserService) SignInUser(context context.Context, data *dto.SignInRequest
 	return nil, slyerrors.BadRequest("400", "password is incorrect")
 }
 
-func (s UserService) RegisterUser(context context.Context, request *dto.RegisterRequest) (repositories.UserAccount, error) {
+func (s UserService) RegisterUser(ctx context.Context, request *dto.RegisterRequest) (*repo.AccountModel, error) {
 	passwordHash, err := cryptox.HashPassword(request.Password)
 	if err != nil {
-		return repositories.UserAccount{}, err
+		return nil, err
 	}
 
 	role := verifier.RoleAdmin
 
-	return s.userDB.RegisterAccount(context, request.Email, passwordHash, role)
+	return s.repos.AccountRepo.Create(ctx, &repo.AccountModel{
+		Email:           request.Email,
+		IsEmailVerified: false,
+		IsPhoneVerified: false,
+		PasswordHashed:  passwordHash,
+		Role:            role,
+	})
 }
 
 func (s UserService) GetAccountById(context context.Context, id uuid.UUID) (repositories.UserAccount, error) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"yip/src/httpx"
 	"yip/src/slyerrors"
 )
 
@@ -112,4 +113,22 @@ func findIndex(key string, s []ControllerKey) int {
 func remove(s []ControllerKey, i int) []ControllerKey {
 	s[i] = s[len(s)-1]
 	return s[:len(s)-1]
+}
+
+// swagger:model SetRoleRequest
+type CreateSLYWalletRequest struct {
+	InvitationCode string `json:"invitationCode"`
+}
+
+func (a *CreateSLYWalletRequest) ReadAndValidate(r *http.Request) error {
+	httpx.PrintRequestBody(r)
+	err := json.NewDecoder(r.Body).Decode(a)
+
+	if err != nil {
+		return slyerrors.NewValidation("400").Add("json is not readable", slyerrors.ValidationCodeCannotValidate, err.Error()).Error()
+	}
+
+	return slyerrors.NewValidation("400").
+		ValidateNotEmpty("invitationCode", a.InvitationCode).
+		Error()
 }

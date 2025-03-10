@@ -9,30 +9,31 @@ import (
 	"yip/src/api/middleware"
 	"yip/src/api/services/dto"
 	"yip/src/config"
+	"yip/src/contracts"
 	"yip/src/httpx"
 	"yip/src/providers"
 	"yip/src/repositories/repo"
 )
 
 type SLYWalletService struct {
-	ethProvider    *providers.EthProvider
-	ByIdMiddleware middleware.EntityMiddleware[*dto.SLYBase]
-	repos          *repo.Repositories
-	Config         *config.Config
+	slyWalletManager *contracts.WalletManager
+	ByIdMiddleware   middleware.EntityMiddleware[*dto.SLYBase]
+	repos            *repo.Repositories
+	Config           *config.Config
 }
 
 func NewSLYWalletService(
 	config *config.Config,
-	ehtProvider *providers.EthProvider,
+	slyWalletManager *contracts.WalletManager,
 	repos *repo.Repositories,
-) SLYWalletService {
+) *SLYWalletService {
 	s := SLYWalletService{
-		ethProvider: ehtProvider,
-		repos:       repos,
-		Config:      config,
+		slyWalletManager: slyWalletManager,
+		repos:            repos,
+		Config:           config,
 	}
 
-	return s
+	return &s
 }
 
 func (s SLYWalletService) SpawnSLYWallet(
@@ -40,7 +41,7 @@ func (s SLYWalletService) SpawnSLYWallet(
 	userOwnerKey common.Address,
 	invitationCode string,
 ) (*providers.TransactionTicket, error) {
-	ticket, err := s.ethProvider.CreateSLYWallet(ctx, userOwnerKey)
+	ticket, err := s.slyWalletManager.SpawnWalletWithGas(ctx, userOwnerKey, 0, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -59,11 +60,11 @@ func (s SLYWalletService) SpawnSLYWallet(
 
 func (s SLYWalletService) GetReceipt(ctx context.Context, hash string) (*providers.TransactionState, error) {
 	h := common.HexToHash(hash)
-	r, err := s.ethProvider.GetTransactionReceipt(h)
+	r, err := s.slyWalletManager.GetTransactionReceipt(h)
 	if err != nil {
 		return nil, err
 	}
-	state, err := s.ethProvider.GetTransactionStatusByReceipt(h, r, nil)
+	state, err := s.slyWalletManager.GetTransactionStatusByReceipt(h, r, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +117,7 @@ func (s SLYWalletService) CreateSLYWalletEntry(
 			return nil, fmt.Errorf("failed to get SlyWallet by address: %w", err)
 		}
 
-		wallets, err := s.ethProvider.WalletManager.GetWalletKeys(common.HexToAddress(contractAddress))
+		wallets, err := s.slyWalletManager.GetWalletKeys(common.HexToAddress(contractAddress))
 		if err != nil {
 			return nil, fmt.Errorf("could not create wallet from contract address")
 		}
@@ -180,7 +181,7 @@ func (s SLYWalletService) CreateSLYWalletEntry(
 }
 
 func (s SLYWalletService) IsControllerKeyOf(controllerKey common.Address, slyWalletAddress common.Address) *httpx.Response {
-	result := s.ethProvider.AuthenticateControllerKeyOfSLYWallet(controllerKey, slyWalletAddress)
+	result := s.slyWalletManager.AuthenticateControllerKeyOfSLYWallet(controllerKey, slyWalletAddress)
 	switch result.StatusCode {
 	case 400:
 		return httpx.BadRequest(result.ErrorDetails)
